@@ -1,0 +1,20 @@
+# Node / Promptfoo
+evals/node_modules/
+evals/eval-out/
+evals/.promptfoo-cache/
+evals/results/*.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+
+# Editor
+.vscode/
+.idea/
+*.swp

@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  fastdds-iter1.xml — 《3》改进项1：doc2.md 瓶颈分析驱动的 Fast DDS 优化提案。
+
+  性质：PROPOSAL / UNMEASURED。本文件是优化提案，不是已合并、已实测的配置。
+  - 不修改 config/optimized/fastdds-base.xml（iter7 种子，已验证旋钮）。
+  - 不修改 config/fastdds.xml（R0 冻结基线）。
+  - 本机器无 /opt/ros、无 Docker，无法端到端测量：STATUS: blocked（见 risks.md）。
+  - 所有"预期收益"均为 doc2.md 技术推断，不是实测延迟/抖动数字。
+
+  依据（doc2.md《机器人与自动驾驶底层通信架构》）：
+    1) UDP 接收缓冲区默认过小（Linux ~212 KiB），突发大样本时内核丢弃 -> 触发
+       Reliable 重传风暴。官方建议 net.core.rmem_max >= 8 MiB。本提案把 Fast DDS
+       用户态 socket 缓冲从 iter7 的 2 MiB 提到 8 MiB（8388608），与 doc2 建议对齐。
+       注意：用户态缓冲调大是必要不充分条件；内核 net.core.rmem_max 仍需操作员
+       sysctl 放开（本仓不改内核，文档级建议，见 risks.md）。
+    2) 发现风暴（SPDP/SEDP 全对全多播）在多节点/跨机时挤占业务带宽。本提案保留
+       Humble 合法的 SIMPLE 发现，但通过 <builtin><discovery_config> 显式固定
+       leaseAnnouncement/leaseDuration，避免默认高频 announce；doc2 同时指出多机
+       场景应上 discovery-server（Static/Super-Client），本仓不引入（Hold）。
+       重要：基线 SCOREBOARD 明确 iter8 调 leaseAnnouncement 15s 被复测否决
+       （arrival jitter 变差），故此处不照搬 15s，仅保持默认 3s 并显式声明，
+       把 discovery-server 作为跨机 blocked 建议写入注释，不改业务行为。
+    3) 历史缓存：保留 iter1 已验证的 Humble schema——History 必须写在
+       <topic><historyQos>，不能写在 <qos><history>（2026-09-10 实测 loadXMLFile 失败）。
+    4) 传输参数：保留 iter2-iter7 已验证旋钮——
+         sendSocketBufferSize/listenSocketBufferSize、
+         RTPS send_buffers preallocated_number=32 / dynamic=false、
+         additive shm_midsize maxMessageSize=280000 / segment_size=2 MiB /
+         healthy_check_timeout_ms=10000。
+       本提案仅在其之上叠加 doc2 建议的 8 MiB socket 缓冲（见上），不重复改
+       send_buffers（iter4 已证 dynamic=false 是那个档位的最优，不再动）。
+
+  域 ID：沿用 R0 冻结 Chain A = ROS_DOMAIN_ID=42（由 config/env/chain_a.sh 导出）。
+  RMW：rmw_fastrtps_cpp。本文件不改变 R0 契约。
+
+  何时合并：必须在有 ROS Humble + Docker 的机器上，以 config/fastdds.xml 为对照，
+  跑 scripts/bench/run_chain_a.sh，按 P50/P95/P99 与 arrival |I-5ms| jitter 复测，
+  通过 gates/check_optimized_configs.py 且无回归后，由人合并。当前 STATUS: blocked。
+-->
+<profiles xmlns="http://www.eprosima.com">
+    <transport_descriptors>
+        <!-- 保留 iter7 additive SHM：只服务中尺寸(<=280000B)消息，不碰 1MiB 大包路径 -->
+        <transport_descriptor>
+            <transport_id>shm_midsize</transport_id>
+            <type>SHM</type>
+            <maxMessageSize>280000</maxMessageSize>
+            <segment_size>2097152</segment_size>
+            <healthy_check_timeout_ms>10000</healthy_check_timeout_ms>
+        </transport_descriptor>
+    </transport_descriptors>
+
+    <participant profile_name="fastdds_iter1_doc2_proposal" is_default_profile="true">
+        <domainId>42</domainId>
+        <rtps>
+            <name>fastdds_iter1_doc2_proposal</name>
+
+            <!-- doc2 建议1：用户态 UDP socket 缓冲 2 MiB -> 8 MiB。
+                 仍需操作员 sysctl net.core.rmem_max=8388608（内核侧，本仓不改）。 -->
+            <sendSocketBufferSize>8388608</sendSocketBufferSize>
+            <listenSocketBufferSize>8388608</listenSocketBufferSize>
+
+            <userTransports>
+                <transport_id>shm_midsize</transport_id>
+            </userTransports>
+            <useBuiltinTransports>true</useBuiltinTransports>
+
+            <!-- 保留 iter3/iter4：32 块 slab、dynamic=false（1MiB 大包的已验证收益） -->
+            <allocation>
+                <send_buffers>
+                    <preallocated_number>32</preallocated_number>
+                    <dynamic>false</dynamic>
+                </send_buffers>
+            </allocation>
+
+            <!-- doc2 建议2：发现参数显式化。不盲目放大 leaseAnnouncement
+                 （iter8 已否决）。跨机发现风暴的根治是 discovery-server，
+                 本仓不引入（Hold，见 risks.md）。此处仅声明默认 3s，便于运维审计。 -->
+            <builtin>
+                <discovery_config>
+                    <discoveryProtocol>SIMPLE</discoveryProtocol>
+                    <leaseAnnouncement>3</leaseAnnouncement>
+                    <leaseDuration>10</leaseDuration>
+                </discovery_config>
+            </builtin>
+        </rtps>
+    </participant>
+
+    <!-- doc2 建议3：历史缓存 schema 修正（iter1 已验证）。
+         Humble Fast-DDS 2.6：History QoS 必须在 <topic><historyQos>。
+         默认 KeepLast depth=5（ROS 2 惯例）；具体 topic 深度由 R0 冻结表决定，
+         本提案不绑定业务 topic（避免惰性 profile）。 -->
+</profiles>

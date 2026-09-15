@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  fastdds-lidar-large.xml — 《3》改进项4：激光雷达大包（~1 MiB/scan）专用提案。
+
+  性质：PROPOSAL / UNMEASURED。不修改 fastdds-base.xml / fastdds.xml。
+  本机器无 ROS/Docker：STATUS: blocked。参数依据 doc2.md 第二章与 SCOREBOARD 经验。
+
+  工况与 doc2 瓶颈：
+    - 典型 32 线以上 LiDAR 点云 ~1 MiB，远超 SHM midsize(280000) 与单 UDP 帧。
+    - doc2：大负载下标准 TCP/UDP 栈系统调用与多次内存拷贝开销巨大；内核 UDP
+      缓冲不足会丢包 -> Reliable 重传风暴。
+    - SCOREBOARD iter5 教训：为大包强行开大 SHM（maxMessageSize 2MiB/4MiB）
+      会把 1MiB BestEffort 从 80/80 打成 1/80，已废弃。故本配置【不】走
+      unfragmented SHM，坚持 builtin UDP 分片路径。
+
+  针对大包的取舍：
+    1) Reliability = RELIABLE：点云不能丢一帧（下游建图依赖完整 scan），
+       与 IMU 的 BestEffort 相反。代价是 ACK/NACK；用足够大的 socket 缓冲与
+       流控把重传压到最低，而不是关可靠。
+    2) UDP socket 缓冲 2 MiB -> 8 MiB：doc2 官方建议 rmem >= 8MiB。
+       1 MiB 样本按 ~64KiB 片约 16 片，突发时内核队列必须够深。
+    3) History = KEEP_LAST depth=1：建图只需最新 scan；保留多 scan 在 1MiB
+       量级会爆内存（doc2 批评定长消息的内存浪费）。
+    4) 流控（flow controller）：doc3 §10.1 指出可靠 Writer 维护 reader proxy 与
+       流控。本提案声明一个低频发流控，避免一次 burst 把发送队列打爆；
+       具体 token 速率需在有 ROS 的机器上按实测吞吐标定，此处不拍数字。
+    5) 不调 send_buffers：iter3/iter4 已证 32/dynamic=false 是 1MiB 的档位，
+       不重复动（iter 经验：动它会回退 1MiB 收益）。
+
+  生效条件同 imu-hf：命名 profile 需 RMW_FASTRTPS_USE_QOS_FROM_XML=1 且
+    topic 名精确匹配。绑定 topic 约定 /points 或 /lidar_points（以 topics.yaml 为准）。
+-->
+<profiles xmlns="http://www.eprosima.com">
+
+    <!-- 流控：低频发，保护大包突发不打爆内核队列。token 速率未实测，占位注释。 -->
+    <flow_controllers>
+        <flow_controller_descriptor name="lidar_large_flow">
+            <max_tokens>8</max_tokens>
+            <token_period_ms>10</token_period_ms>
+        </flow_controller_descriptor>
+    </flow_controllers>
+
+    <participant profile_name="lidar_large_participant" is_default_profile="true">
+        <domainId>42</domainId>
+        <rtps>
+            <!-- doc2 建议1：大包突发 -> 8 MiB 用户态 socket 缓冲 -->
+            <sendSocketBufferSize>8388608</sendSocketBufferSize>
+            <listenSocketBufferSize>8388608</listenSocketBufferSize>
+            <!-- 保留 iter3/4：32 块 slab、dynamic=false（1MiB 已验证档位） -->
+            <allocation>
+                <send_buffers>
+                    <preallocated_number>32</preallocated_number>
+                    <dynamic>false</dynamic>
+                </send_buffers>
+            </allocation>
+            <!-- 不挂用户 SHM：1MiB > 280000 走 builtin UDP 分片；
+                 iter5 已证开大 SHM 会回退 1MiB，故 useBuiltinTransports=true、
+                 不引用 shm_midsize。 -->
+            <useBuiltinTransports>true</useBuiltinTransports>
+        </rtps>
+    </participant>
+
+    <data_writer profile_name="lidar_large_writer">
+        <topic>
+            <historyQos>
+                <kind>KEEP_LAST</kind>
+                <depth>1</depth>
+            </historyQos>
+            <qos>
+                <reliability>
+                    <kind>RELIABLE</kind>
+                </reliability>
+                <publishMode>
+                    <kind>ASYNCHRONOUS</kind>
+                </publishMode>
+            </qos>
+        </topic>
+    </data_writer>
+
+    <data_reader profile_name="lidar_large_reader">
+        <topic>
+            <historyQos>
+                <kind>KEEP_LAST</kind>
+                <depth>1</depth>
+            </historyQos>
+            <qos>
+                <reliability>
+                    <kind>RELIABLE</kind>
+                </reliability>
+            </qos>
+        </topic>
+    </data_reader>
+
+</profiles>

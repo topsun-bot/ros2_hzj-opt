@@ -1,0 +1,32 @@
+# 断言矩阵（参考）
+
+本文件是 `promptfoo.yaml` 中各用例断言的**人类可读对照表**。机器可读定义在
+`promptfoo.yaml` 的 `tests[].assert` 中。每条断言描述「一个合格的 DDS 代理回答必须/不得出现什么」。
+
+全局结构断言（`defaultTest.assert`，每个用例都跑）：
+
+| 断言 | 类型 | 含义 |
+|---|---|---|
+| 时延 | `latency` < 10000ms | 回答必须在 10s 内返回（防挂死） |
+| 非空且够长 | `javascript` `output.trim().length >= 40` | 拒绝空回答/一句话敷衍 |
+
+## 各用例内容断言
+
+| # | 用例 | 必须命中（icontains / regex） | 依据仓库事实 |
+|---|---|---|---|
+| 01 | 请求流 | `History`、`分段|端到端|归因`、`回调`、`P99` | `docs/architecture/latency-attribution.md`：T_e2e 分段、P99 不可加 |
+| 02 | 双链差异 | `fastrtps`、`cyclonedds`、`42`、`chain_a.sh`、`chain_b.sh`、`discovery|发现` | `config/env/chain_a.sh` / `chain_b.sh`；混用默认值 = discovery 失败 |
+| 03 | 抖动瓶颈 | `healthy_check_timeout`、`jitter`、`p95`、`port_queue|leaseAnnouncement|WLP` | iter7 保留 healthy_check_timeout_ms 1000→10000；其余旋钮丢弃 |
+| 04 | RMW 切换 | `RMW_IMPLEMENTATION`、`source`、`chain_a.sh`、`chain_b.sh` | 进程启动前用环境变量选择 RMW；脚本必须 source |
+| 05 | XML 参数 | `maxMessageSize`、`280000`、`send_buffers`、`dynamic`、`分片|fragment|builtin|大于` | `config/optimized/fastdds-base.xml`；1MiB > 280000 走 builtin 分片 |
+| 06 | 硬约束 | `vendor`、`zenoh|Agnocast|Cega`、`不集成|不修改|Hold`、`blocked|STATUS|不编造|真实` | `AGENTS.md` 硬约束节 |
+| 07 | IMU 高频 | `jitter`、`p95`、`healthy_check`、`64|200` | IMU 64B/200Hz，闸门是 jitter 而非 p50 |
+| 08 | 激光雷达大包 | `send_buffers|sendSocketBufferSize|socket`、`32`、`280000`、`分片|fragment|builtin` | 1MiB ~16 分片；独占/过大 SHM 已丢弃 |
+
+## 负面约束（建议在接入真实 LLM 后补充）
+
+当前套件以正向断言为主。下一步应加入 `not-contains` / `llm-rubric` 负面断言，例如：
+
+- 回答不得建议「修改 vendor 源码」「把 zenoh 接入链 A」。
+- 回答不得编造跨机 UDP 分位数（cross-host 仍 `STATUS: blocked`）。
+- 回答不得把链 A 域名说成 0、链 B 域名说成 42。

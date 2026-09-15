@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  fastdds-imu-hf.xml — 《3》改进项3：IMU 高频小包（64 B / 200 Hz）专用提案。
+
+  性质：PROPOSAL / UNMEASURED。不修改 fastdds-base.xml / fastdds.xml。
+  本机器无 ROS/Docker：STATUS: blocked。参数依据 run_imu_hf.sh 与 doc2.md。
+
+  工况（scripts/bench/run_imu_hf.sh 实测定义，非本仓测量）：
+    - 负载 64 B（8B ts + 24B accel + 24B gyro + 8B seq/pad）
+    - 间隔 5 ms ≈ 200 Hz；RTT > 5ms 时闭环有效率 = 1/RTT
+    - 关键门禁是 jitter（arrival |I-5ms|），不是 p50
+    - SCOREBOARD iter7 已验证：shm_midsize healthy_check_timeout 10000
+      把同机 BestEffort RTT p95 1205 -> 1148 us、arrival p95 488 -> 375 us
+
+  针对小消息高频的取舍（doc2.md + SCOREBOARD 经验）：
+    1) Reliability = BEST_EFFORT：IMU 是可丢的遥测量，丢一帧比等重传
+       更安全（doc2 宇树经验：无线/高频控制链上 Reliable 重传会引发卡顿）。
+       重传 ACK/NACK 在 200Hz 小包上是纯额外开销。
+    2) History = KEEP_LAST depth=1：控制循环只需最新一帧；保留多帧只会增加
+       排队延迟与尾抖动。ROS 2 惯例 depth=1~5，这里取最激进的 1。
+       Humble 2.6：History 必须在 <topic><historyQos>（iter1 schema 教训）。
+    3) PublishMode = ASYNCHRONOUS 关闭 -> 用默认 SYNCHRONOUS：64B 单样本远小于
+       任何发送缓冲，无需异步队列；异步队列反而引入额外调度与唤醒抖动。
+    4) DataSharing / SHM：小消息走 SHM 节省拷贝的收益有限，而 SHM 端口
+       watcher 的超时/队列反而是 IMU jitter 的来源（iter6 调 port_queue 被否、
+       iter7 调 healthy_check 才转正）。故本配置不额外调 SHM 队列，
+       仅在 participant 层继承 iter7 的 healthy_check_timeout=10000。
+
+  生效条件（SCOREBOARD iter10 教训）：命名 writer/reader profile 需
+    RMW_FASTRTPS_USE_QOS_FROM_XML=1 且 topic 名精确匹配才会生效；
+    默认 pingpong 用 testdata QoS 名，不会绑定。本文件是生产 topic 规划提案。
+  绑定 topic：约定为 /imu（sensor_msgs/Imu 紧凑流）。实际 topic 名以
+    config/topics.yaml / R0 冻结表为准，合并前需对齐。
+-->
+<profiles xmlns="http://www.eprosima.com">
+
+    <participant profile_name="imu_hf_participant" is_default_profile="true">
+        <domainId>42</domainId>
+        <rtps>
+            <!-- 小包不需要 8MiB socket；保留 iter7 的 2MiB 已够 64B 突发 -->
+            <sendSocketBufferSize>2097152</sendSocketBufferSize>
+            <listenSocketBufferSize>2097152</listenSocketBufferSize>
+            <!-- 继承 iter7：32 块 slab、dynamic=false -->
+            <allocation>
+                <send_buffers>
+                    <preallocated_number>32</preallocated_number>
+                    <dynamic>false</dynamic>
+                </send_buffers>
+            </allocation>
+        </rtps>
+    </participant>
+
+    <!-- 发布端：BestEffort + KeepLast(1) + 同步发布 -->
+    <data_writer profile_name="imu_hf_writer">
+        <topic>
+            <historyQos>
+                <kind>KEEP_LAST</kind>
+                <depth>1</depth>
+            </historyQos>
+            <qos>
+                <reliability>
+                    <kind>BEST_EFFORT</kind>
+                </reliability>
+                <publishMode>
+                    <kind>SYNCHRONOUS</kind>
+                </publishMode>
+            </qos>
+        </topic>
+    </data_writer>
+
+    <!-- 订阅端：与发布端一致 -->
+    <data_reader profile_name="imu_hf_reader">
+        <topic>
+            <historyQos>
+                <kind>KEEP_LAST</kind>
+                <depth>1</depth>
+            </historyQos>
+            <qos>
+                <reliability>
+                    <kind>BEST_EFFORT</kind>
+                </reliability>
+            </qos>
+        </topic>
+    </data_reader>
+
+</profiles>

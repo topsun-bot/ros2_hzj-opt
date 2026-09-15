@@ -1,0 +1,16 @@
+{
+  "name": "ros2-hzj-opt-evals",
+  "version": "1.0.0",
+  "description": "Promptfoo eval suite for the ROS2 DDS Q&A / config-recommendation agent over ros2_hzj-opt",
+  "private": true,
+  "scripts": {
+    "evals": "promptfoo eval -c promptfoo.yaml",
+    "evals:view": "promptfoo view",
+    "evals:prompt": "promptfoo prompt"
+  },
+  "keywords": ["ros2", "dds", "fastdds", "cyclonedds", "promptfoo", "evals"],
+  "license": "ISC",
+  "dependencies": {
+    "promptfoo": "^0.123.0"
+  }
+}

@@ -1,0 +1,1 @@
+请解释 ROS2 DDS 一条消息从发布到接收的完整链路：发布链（应用 publish → RMW → Writer History → 传输）和接收链（传输 → Reader History → RMW take → 回调）。在本仓库双链架构下，端到端时延应如何分段归因？为什么不能把各段 P99 相加当作端到端 P99？

@@ -1,0 +1,1 @@
+我们要把一路 32 线激光雷达（约 1 MiB 的 sensor_msgs/PointCloud2，same-host 传输）接到链 A。基于本仓库已验证的调优，应推荐哪些 DDS 参数？为什么当初 768 KiB 独占 SHM / 过大 SHM 的方案没有保留？1 MiB 样本最终走哪条传输路径？

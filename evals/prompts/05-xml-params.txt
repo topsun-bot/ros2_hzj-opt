@@ -1,0 +1,1 @@
+请解释 config/optimized/fastdds-base.xml 中以下关键参数的作用与取值依据：sendSocketBufferSize / listenSocketBufferSize、shm_midsize 的 maxMessageSize 与 segment_size、healthy_check_timeout_ms、send_buffers 的 preallocated_number 与 dynamic。另外，为什么 1 MiB 的激光雷达样本不走 shm_midsize 这条 SHM 消息通道？

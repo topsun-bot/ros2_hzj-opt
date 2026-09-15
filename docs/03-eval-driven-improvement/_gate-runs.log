@@ -1,0 +1,39 @@
+# Gate run log — 2026-09-15 09:26 PDT
+PASS(0) scripts/gates/check_cega_bridge_hold.py
+PASS(0) scripts/gates/check_dod_evidence.py
+PASS(0) scripts/gates/check_dual_chain_baseline.py
+PASS(0) scripts/gates/check_executor_map.py
+PASS(0) scripts/gates/check_risk_matrix.py
+PASS(0) scripts/gates/check_runtime_provenance.py
+PASS(0) scripts/gates/check_sink_layers.py
+PASS(0) scripts/gates/check_source_map.py
+PASS(0) scripts/gates/check_three_chain_repro.py
+PASS(0) scripts/gates/check_unitree_cyclone_swap.py
+PASS(0) scripts/gates/prove_rmw.py
+PASS(0) scripts/gates/print_bench_gates.py
+BASELINE: PASS=12 FAIL=0
+## after iter1 (fastdds-iter1.xml) 09:28
+iter1: PASS=12 FAIL=0
+## after iter2 (cyclone-iter1.xml)
+iter2: PASS=12 FAIL=0
+## after iter3 (fastdds-imu-hf.xml)
+iter3: PASS=12 FAIL=0
+## after iter4 (fastdds-lidar-large.xml)
+iter4: PASS=12 FAIL=0
+## after iter5 (check_optimized_configs.py, now 13 gates)
+PASS: scripts/gates/check_cega_bridge_hold.py
+PASS: scripts/gates/check_dod_evidence.py
+PASS: scripts/gates/check_dual_chain_baseline.py
+PASS: scripts/gates/check_executor_map.py
+PASS: scripts/gates/check_optimized_configs.py
+PASS: scripts/gates/check_risk_matrix.py
+PASS: scripts/gates/check_runtime_provenance.py
+PASS: scripts/gates/check_sink_layers.py
+PASS: scripts/gates/check_source_map.py
+PASS: scripts/gates/check_three_chain_repro.py
+PASS: scripts/gates/check_unitree_cyclone_swap.py
+PASS: scripts/gates/prove_rmw.py
+PASS: scripts/gates/print_bench_gates.py
+iter5: PASS=13 FAIL=0 (total gates=13)
+## after iter6 (collect_scores.py)
+iter6(final): PASS=13 FAIL=0 total=13

@@ -1,0 +1,184 @@
+# Promptfoo 评估套件 — ROS2 DDS 技术问答与配置推荐代理（ros2_hzj-opt）
+#
+# 运行：
+#   cd evals && npm run evals
+#
+# Provider 说明：
+#   - 默认 provider = `echo`（promptfoo 内置）：把用户问题原样作为"代理回答"返回。
+#     用于在没有 LLM API key 时把框架跑通、验证断言接线正确。此模式下，
+#     要求"回答中包含领域事实"的内容断言会失败——这是预期的，证明断言起作用了。
+#   - 配置真实 LLM：在环境中设置 OPENAI_API_KEY，并把 providers 切换为 openai:gpt-4o-mini
+#     （见下方注释块），再跑 `npm run evals`。
+#
+# 评估维度：回答质量 / 检索依据（文件路径、参数名）/ 业务硬约束 / 任务完成度。
+#
+# 结构说明：prompts/question.txt 是唯一模板（{{question}}）；8 个用例各自把问题放进
+# vars.question 并挂自己的断言，避免 prompts × tests 笛卡尔积。
+
+description: "ros2_hzj-opt DDS 问答与配置推荐代理 — 基线评估（echo provider，框架冒烟）"
+
+prompts:
+  - prompts/question.txt
+
+providers:
+  # 默认：无 API key 时的冒烟 provider（把问题原样当回答返回）
+  - id: echo
+    label: echo-mock
+
+  # —— 真实 LLM provider（取消注释并配置 OPENAI_API_KEY 后启用）——
+  # - id: openai:gpt-4o-mini
+  #   label: gpt-4o-mini
+  #   config:
+  #     temperature: 0.2
+  #     max_tokens: 800
+
+defaultTest:
+  options:
+    systemPrompt: file://prompts/system.txt
+  # 结构性断言：任何回答都必须满足
+  assert:
+    - type: latency
+      threshold: 10000
+    - type: javascript
+      value: "output && output.trim().length >= 40"
+
+tests:
+  - description: "01 请求流：发布/接收链 + 时延分段归因"
+    vars:
+      question: >
+        请解释 ROS2 DDS 一条消息从发布到接收的完整链路：发布链（应用 publish → RMW →
+        Writer History → 传输）和接收链（传输 → Reader History → RMW take → 回调）。
+        在本仓库双链架构下，端到端时延应如何分段归因？为什么不能把各段 P99 相加当作端到端 P99？
+    assert:
+      - type: icontains
+        value: "History"
+      - type: regex
+        value: "/分段|端到端|归因/"
+      - type: icontains
+        value: "回调"
+      - type: icontains
+        value: "P99"
+
+  - description: "02 双链差异：RMW / 域名 / 脚本 / 混用后果"
+    vars:
+      question: >
+        链 A 和链 B 的 DDS 配置有什么区别？请分别说明两者使用的 RMW 实现、ROS_DOMAIN_ID、
+        对应的环境脚本路径。如果操作员误把两套默认值混用（例如对链 B 进程 source 了
+        chain_a.sh），会发生什么后果？
+    assert:
+      - type: icontains
+        value: "fastrtps"
+      - type: icontains
+        value: "cyclonedds"
+      - type: icontains
+        value: "42"
+      - type: icontains
+        value: "chain_a.sh"
+      - type: icontains
+        value: "chain_b.sh"
+      - type: regex
+        value: "/discovery|发现/"
+
+  - description: "03 抖动瓶颈：保留旋钮 + 指标 + 禁止重试旋钮"
+    vars:
+      question: >
+        我们在 IMU 数据（64 字节、200 Hz、BestEffort）场景下观察到接收延迟抖动增大。
+        请基于本仓库 fastdds.xml 的 iter 调优历史，分析抖动瓶颈可能卡在哪一层；
+        哪一个参数已经被验证保留并改善了 jitter，对应什么指标？
+        另外，哪些旋钮已经被丢弃或明确禁止重试？
+    assert:
+      - type: icontains
+        value: "healthy_check_timeout"
+      - type: icontains
+        value: "jitter"
+      - type: icontains
+        value: "p95"
+      - type: regex
+        value: "/port_queue|leaseAnnouncement|WLP/"
+
+  - description: "04 RMW 切换：环境变量 + source 步骤"
+    vars:
+      question: >
+        如何在不改应用代码、应用开发者不感知的前提下，在不同 RMW 实现之间切换？
+        请给出具体的环境变量名称与操作步骤，并说明本仓库链 A / 链 B 各自对应的
+        source 脚本路径，以及为什么这些脚本必须 source 而不能直接执行。
+    assert:
+      - type: icontains
+        value: "RMW_IMPLEMENTATION"
+      - type: icontains
+        value: "source"
+      - type: icontains
+        value: "chain_a.sh"
+      - type: icontains
+        value: "chain_b.sh"
+
+  - description: "05 XML 参数解释：socket / SHM / send_buffers / 1MiB 路径"
+    vars:
+      question: >
+        请解释 config/optimized/fastdds-base.xml 中以下关键参数的作用与取值依据：
+        sendSocketBufferSize / listenSocketBufferSize、shm_midsize 的 maxMessageSize 与
+        segment_size、healthy_check_timeout_ms、send_buffers 的 preallocated_number 与
+        dynamic。另外，为什么 1 MiB 的激光雷达样本不走 shm_midsize 这条 SHM 消息通道？
+    assert:
+      - type: icontains
+        value: "maxMessageSize"
+      - type: icontains
+        value: "280000"
+      - type: icontains
+        value: "send_buffers"
+      - type: icontains
+        value: "dynamic"
+      - type: regex
+        value: "/分片|fragment|builtin|大于/"
+
+  - description: "06 硬约束：vendor / zenoh / dimos_bridge / 域隔离 / 数字真实性"
+    vars:
+      question: >
+        作为本仓库的 DDS 配置推荐代理，你在给出任何调优或架构建议时必须遵守哪些硬约束？
+        请明确说明：能否修改 vendor 源码？能否集成 zenoh / Agnocast / Cega？
+        能否修改 dimos_bridge 运行时？双链域之间能否共享默认配置？
+        bench 测量数据如果没有真实环境该怎么写？
+    assert:
+      - type: icontains
+        value: "vendor"
+      - type: regex
+        value: "/zenoh|Agnocast|Cega/"
+      - type: regex
+        value: "/不集成|不修改|Hold|不改/"
+      - type: regex
+        value: "/blocked|STATUS|不编造|真实/"
+
+  - description: "07 IMU 高频：配置要点 + 闸门指标（jitter 而非 p50）"
+    vars:
+      question: >
+        我们要把一路 IMU（64 字节、200 Hz、BestEffort）接到链 A。基于本仓库已验证的
+        调优成果，请给出推荐的 DDS 配置要点；衡量这次调优是否真正有效的指标是 p50
+        还是 jitter（p95 / 到达间隔）？
+    assert:
+      - type: icontains
+        value: "jitter"
+      - type: icontains
+        value: "p95"
+      - type: icontains
+        value: "healthy_check"
+      - type: regex
+        value: "/64|200/"
+
+  - description: "08 激光雷达大包：推荐参数 + 独占 SHM 为何丢弃 + 1MiB 路径"
+    vars:
+      question: >
+        我们要把一路 32 线激光雷达（约 1 MiB 的 sensor_msgs/PointCloud2，same-host 传输）
+        接到链 A。基于本仓库已验证的调优，应推荐哪些 DDS 参数？为什么当初 768 KiB 独占
+        SHM / 过大 SHM 的方案没有保留？1 MiB 样本最终走哪条传输路径？
+    assert:
+      - type: regex
+        value: "/send_buffers|sendSocketBufferSize|socket/"
+      - type: icontains
+        value: "32"
+      - type: icontains
+        value: "280000"
+      - type: regex
+        value: "/分片|fragment|builtin/"
+
+# 输出（必须带扩展名，promptfoo 据此推断格式）
+outputPath: eval-out/results.json

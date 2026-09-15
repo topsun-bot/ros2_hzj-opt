@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  cyclone-iter1.xml — 《3》改进项2：doc2.md 瓶颈分析驱动的 Cyclone DDS 优化提案。
+
+  性质：PROPOSAL / UNMEASURED。本文件是优化提案，不是已合并、已实测的配置。
+  - 不引入、不替换 Chain B 的现网 Cyclone XML（config/env/chain_b.sh 仍 unset CYCLONEDDS_URI）。
+  - 本机器无 ROS/Docker：STATUS: blocked（无法端到端验证）。
+  - 所有参数为 doc2.md 技术推断，不是实测数字。
+
+  依据（doc2.md 第二章 标准 Eclipse CycloneDDS 架构局限）：
+    1) OS 内核网络栈开销：Cyclone 深度依赖 Linux TCP/UDP 栈，大样本突发时
+       默认 UDP 接收缓冲过小导致内核丢包 -> Reliable 重传风暴。官方建议把
+       套接字缓冲放到 8 MiB 以上。本提案设 <Internal><SocketBufferSize>=8388608。
+       这是 Cyclone 用户态 UDP 缓冲；内核 net.core.rmem_max 仍需 sysctl 放开
+       （文档级建议，本仓不改内核）。
+    2) 内部线程：doc3.md 指出 Executor/WaitSet 与 DDS 原生等待接口不匹配是
+       上层问题；在 DDS 层可调的是 Cyclone 内部发现/接收线程的栈与优先级。
+       本提案仅显式声明默认 ThreadSetup，不擅自绑核（无 isolcpus，绑核在共享
+       VM 上是误导，见 SCOREBOARD iter10 对 thread/affinity 的判定）。
+    3) 最大消息 / 分片：doc2 指出数百 KB~MB 级点云/图像在标准栈上系统调用与
+       拷贝开销巨大。Cyclone 对超过链路 MTU 的样本自动分片，无需手动配
+       "maxMessageSize"；跨机大包的根治是 SHM/零拷贝（本仓不引入 iceoryx，
+       Hold）。此处仅把单播网络接口与多播发现策略显式化，便于审计。
+    4) 发现风暴：doc2 指出 SPDP 全对全多播在多节点时复杂度爆炸。本提案保留
+       域0默认多播发现（单机回环需要），但对跨机场景的根治（discovery server /
+       StaticEndpoint）作为 blocked 建议写入注释，不擅自关闭多播（会破坏单机发现）。
+
+  域：Chain B = ROS_DOMAIN_ID=0（与 config/env/chain_b.sh 一致）。
+  RMW：rmw_cyclonedds_cpp。仅为"用 ROS 2 RMW 对齐链 B"的操作员准备，
+       不改变 DimOS 原生 DDSConfig.domain_id=0。
+-->
+<CycloneDDS xmlns="https://cdds.io/config"
+            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+            xsi:schemaLocation="https://cdds.io/config https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/master/etc/cyclonedds.xsd">
+  <Domain id="0">
+    <General>
+      <!-- 单机/域0 默认保留本机回环；跨机多播脆弱性见 risks.md（blocked）。 -->
+      <AllowMulticast>true</AllowMulticast>
+    </General>
+
+    <!-- doc2 建议1：UDP 套接字缓冲 8 MiB。
+         内核侧仍需: sysctl -w net.core.rmem_max=8388608
+                     net.core.wmem_max=8388608  （本仓不改内核）。 -->
+    <Internal>
+      <SocketBufferSize>8388608</SocketBufferSize>
+      <!-- doc2 建议2：显式声明内部线程为默认值；不在共享 VM 上擅自绑核/提优先级。
+           跨机大包的零拷贝根治走 SHM/iceoryx（Hold，未引入）。 -->
+      <ThreadSetup>
+        <Image>default</Image>
+      </ThreadSetup>
+    </Internal>
+
+    <!-- doc2 建议3：大消息自动分片，不改 MTU；
+         SHM 保持默认开启（doc2 警告 >18 订阅者时 SHM 延迟反升，
+         故此处不强行调优 SHM 队列深度，仅留 Enable=true 默认）。 -->
+    <SharedMemory>
+      <Enable>true</Enable>
+    </SharedMemory>
+
+    <!-- doc2 建议4：发现参数显式化。跨机发现风暴的根治是 discovery server，
+         本仓不引入（Hold）；此处保留默认 SPDP，便于审计默认值。 -->
+    <Discovery>
+      <ParticipantIndex>auto</ParticipantIndex>
+      <MaxAutoParticipantIndex>20</MaxAutoParticipantIndex>
+    </Discovery>
+  </Domain>
+</CycloneDDS>
