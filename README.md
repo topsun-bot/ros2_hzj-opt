@@ -1,5 +1,7 @@
 # ros2_hzj-opt
 
+> **项目定位**：ROS2 DDS optimization workspace: dual-chain config tuning, eval-driven latency improvement, refactoring plan, security audit, Promptfoo evals, and Mac HIL test results. Independent from topsun_dimos.
+
 ROS 2 DDS 优化工作区——在 `ros2_hzj` 双链基线之上，以证据驱动的方式进行配置调优、重构规划、评估循环、Mac HIL 测试、Promptfoo 评估套件与安全审计。
 
 > 本仓库独立于 `topsun_dimos`，是 `topsun-bot/ros2_hzj` 的优化产物仓库。不修改 vendor 源码行为，不集成 Agnocast/zenoh/Cega，不改 dimos_bridge 运行时。
